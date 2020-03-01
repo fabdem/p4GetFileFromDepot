@@ -19,19 +19,25 @@ package main
 //	cross compilation AMD64:  env GOOS=windows GOARCH=amd64 go build p4getfilefromdepot.go
 
 import (
-	"errors"
+	//"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"strconv"
+
 )
+
+var p4Cmd string // p4 command path
 
 func main() {
 
 	var versionFlg bool
 	var user string
-	var p4Cmd string // p4 command path
+	var rev int
+	var localFileName string
 	var err error
 
 	const usageVersion   = "Display Version"
@@ -46,7 +52,7 @@ func main() {
 	checkFlags.StringVar(&user, "user", "", usageUser)
 	checkFlags.StringVar(&user, "u", "", usageUser + " (shorthand)")
 	checkFlags.IntVar(&rev, "revision", 0, usageRev)
-	checkFlags.IntVar(&rev, "r", 0, usagerev + " (shorthand)")
+	checkFlags.IntVar(&rev, "r", 0, usageRev + " (shorthand)")
 	checkFlags.Usage = func() {
         fmt.Printf("Usage: %s [opt] <file path/name in depot> <localpath>\n",os.Args[0])
 				fmt.Print("Get the head file from the depot and store it to the local path.")
@@ -71,8 +77,6 @@ func main() {
 
   // Parse the command parameters
   index     := len(os.Args)
-//	version   := os.Args[index - 3]
-//	depotFile := os.Args[index - 2] + "#" + version
 	depotFile := os.Args[index - 2]
 	localPath := os.Args[index - 1]
 
@@ -80,60 +84,20 @@ func main() {
 	ext := filepath.Ext(depotFile) 				// Read extension
 
 	if rev > 0 {  // If a specific version has been requested through -r
-		localFileName := localPath + fileName[0:len(fileName)-len(ext)] + "#" + rev + ext
+		localFileName = localPath + fileName[0:len(fileName)-len(ext)] + "#" + string(rev) + ext
 
 	} else { // Get head rev
-		rev, err := p4GetHeadRev(depotFile,user)
+		rev, err = p4GetHeadRev(depotFile,user)
 		if err != nil {
 			fmt.Printf("P4 command line error - %s\n", err)
 			os.Exit(1)
 		}
-		localFileName := localPath + fileName[0:len(fileName)-len(ext)] + "#" + rev + ext
+		localFileName = localPath + fileName[0:len(fileName)-len(ext)] + "#" + string(rev) + ext
 	}
 
-
-	// fmt.Printf("fileName: %s\n", fileName)
-
-	/*
-	fmt.Printf("version: %s\n", version)
-	fmt.Printf("depotFile: %s\n", depotFile)
-	fmt.Printf("localPath: %s\n", localPath)
-	fmt.Printf("localFileName: %s\n", localFileName)
-	*/
-	/*
-	P4 print options :
-	-k suppress RCS keyword expansion (p4 variables)
-	-q suppress header printing
-	-o <local file>  redirect to a file -> permissions are maintained so warning. REQUIRED! Output to std forces it to utf8,
-
-	e.g. p4 -u myusername print -k -q -o ./test.cmd  //ap4rootproject/dev/folder/alocfile_bulgarian.txt#7
-	*/
-	var out []byte
-
-	if len(user) > 0 {
-		out, err = exec.Command(p4Cmd, "-u", user, "print","-k", "-q", "-o",localFileName, depotFile).CombinedOutput()
-		// fmt.Printf("P4 command line result - %s\n %s\n", err, out)
-	} else {
-		out, err = exec.Command(p4Cmd, "print","-k", "-q", "-o",localFileName, depotFile).CombinedOutput()
-	}
-	if err != nil {
-		fmt.Printf("P4 command line error\n%s\n%s\n", err, out)
+	if err = p4GetFile(depotFile, localFileName, user); err != nil  {
+		fmt.Printf("P4 command line error - %s\n", err)
 		os.Exit(1)
-	}
-
-	// Unfortunately p4 print status in linux is not reliable.
-	// err != nil when syntax err but not if file doesn't exist.
-	// So manually check if a file was created:
-	if _, err := os.Stat(localFileName); err != nil {
-	   if os.IsNotExist(err) {
-	       // file does not exist
-				fmt.Printf("Error - No file produced\n%s\n%s\n", err, out)
-				os.Exit(1)
-	   } else {
-	       // Can't get file stat
-				fmt.Printf("Error - can't access the status of file produced\n%s\n%s\n", err, out)
-				os.Exit(1)
-		}
 	}
 
 	// Build return string:
@@ -141,9 +105,23 @@ func main() {
 }
 
 // Get a file from P4 depot and store it under the path/name provided
+// 	depotFileName: file path and name in P4
+// 	user: P4 user name
+// 	localFileName: file path and name of hte output file
+// 	user: P4 user name
+
+/*
+P4 print options :
+-k suppress RCS keyword expansion (p4 variables)
+-q suppress header printing
+-o <local file>  redirect to a file -> permissions are maintained so warning. REQUIRED! Output to std forces it to utf8,
+
+e.g. p4 -u myusername print -k -q -o ./test.cmd  //ap4rootproject/dev/folder/alocfile_bulgarian.txt#7
+*/
 func p4GetFile(depotFile string, localFileName string, user string) error {
 
 	var out []byte
+	var err error
 
 	if len(user) > 0 {
 		out, err = exec.Command(p4Cmd, "-u", user, "print","-k", "-q", "-o",localFileName, depotFile).CombinedOutput()
@@ -159,7 +137,7 @@ func p4GetFile(depotFile string, localFileName string, user string) error {
 	// Unfortunately p4 print status in linux is not reliable.
 	// err != nil when syntax err but not if file doesn't exist.
 	// So manually check if a file was created:
-	if _, err := os.Stat(localFileName); err != nil {
+	if _, err = os.Stat(localFileName); err != nil {
 	 	if os.IsNotExist(err) {
 		 	// file does not exist
 			fmt.Printf("Error - No file produced\n%s\n%s\n", err, out)
@@ -174,15 +152,17 @@ func p4GetFile(depotFile string, localFileName string, user string) error {
 }
 
 // Get from P4 the head revision number of a file
-func p4GetHeadRev(depotFileName string, user string) (rev int, error)
+// 	depotFileName: file path and name in P4
+// 	user: P4 user name
+func p4GetHeadRev(depotFileName string, user string) (rev int, err error) {
 
 	var out []byte
 	if len(user) > 0 {
 		// fmt.Printf(p4Cmd + " -u " + user + " files " + " " + depotFile + "\n")
-		out, err = exec.Command(p4Cmd, "-u", user, "files", depotFile).Output()
+		out, err = exec.Command(p4Cmd, "-u", user, "files", depotFileName).Output()
 	} else {
-		// fmt.Printf(p4Cmd + " files " + depotFile + "\n")
-		out, err = exec.Command(p4Cmd, "files", depotFile).Output()
+		// fmt.Printf(p4Cmd + " files " + depotFileName + "\n")
+		out, err = exec.Command(p4Cmd, "files", depotFileName).Output()
 	}
 	if err != nil {
 		fmt.Printf("P4 command line error - %s\n", err)
@@ -201,7 +181,7 @@ func p4GetHeadRev(depotFileName string, user string) (rev int, error)
 	// sRev := string(out[strings.LastIndex(string(out),"#") + len("#"):strings.LastIndex(string(out)," - ")])
 	sRev := string(out[idxBeg:idxEnd])
 
-	rev, err := strconv.Atoi(sRev) // Check format
+	rev, err = strconv.Atoi(sRev) // Check format
 	if err != nil {
 		fmt.Printf("sRev=%s\n", sRev)
 		fmt.Printf("Format err=%s\n", err)
