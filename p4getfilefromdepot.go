@@ -54,18 +54,17 @@ func main() {
 	checkFlags.IntVar(&rev, "r", 0, usageRev+" (shorthand)")
 	checkFlags.Usage = func() {
 		fmt.Printf("Usage: %s [opt] <file path/name in depot> <localpath>\n", os.Args[0])
-		fmt.Print("Get the head file from the depot and store it to the local path.")
-		fmt.Print("Returns <local  path>filename#<revision> (P4 file naming convention).")
-		fmt.Print("Use option -r to specify a revision number, if not the head rev is downloaded.")
+		fmt.Println(" Get a file from the depot and store it to the local path.")
+		fmt.Println(" Use option -r to specify a revision number, if not the head rev is downloaded.")
+		fmt.Println(" Returns: <local  path>/filename#<revision> (P4 file naming convention).")
 		checkFlags.PrintDefaults()
 	}
-
 
 	// Check parameters
 	checkFlags.Parse(os.Args[1:])
 
 	if versionFlg {
-		fmt.Printf("Version %s\n", "2020-02  v1.1.1")
+		fmt.Printf("Version %s\n", "2020-03  v1.1.2")
 		os.Exit(0)
 	}
 
@@ -87,7 +86,7 @@ func main() {
 
 	fileName := filepath.Base(depotFile) // extract filename
 	ext := filepath.Ext(depotFile)       // Read extension
-	
+
 	// fmt.Printf("\nname=%v",fileName)
 	// fmt.Printf("\nlocalpath=%v",localPath)
 	// fmt.Printf("\nrev=%v",rev)
